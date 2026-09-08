@@ -1,37 +1,36 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>atnid-testing</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    }
-    main { padding: 2rem; max-width: 40rem; }
-    h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
-    p { margin: 0 0 1rem; opacity: .75; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  </style>
+  <title>Dealer Test Page</title>
+
+<!--
+Start of global snippet: Please do not remove
+Place this snippet between the <head> and </head> tags on every page of your site.
+-->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=DC-17198395"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'DC-17198395');
+
+function fireFloodlight() {
+  gtag('event', 'conversion', {
+    'allow_custom_scripts': true,
+    'send_to': 'DC-17198395/a3iq30/atnid0+standard'
+  });
+}
+</script>
+<!-- End of global snippet: Please do not remove -->
 </head>
+
 <body>
-  <main>
-    <h1>atnid-testing</h1>
-    <p>Static test page served by GitHub Pages.</p>
-    <p>Page loaded: <code id="loaded"></code></p>
-
-    <!-- ===== Test tags / scripts go below ===== -->
-
-    <!-- ===== End test tags ===== -->
-
-    <script>
-      document.getElementById('loaded').textContent = new Date().toISOString();
-    </script>
-  </main>
+  <h1>East Test Honda — Dealer Specials (sandbox)</h1>
+  <p><a href="tel:+15555550100" onclick="fireFloodlight()">Call dealership</a></p>
+  <p><a href="https://www.honda.com/" onclick="fireFloodlight()">Visit dealer website</a></p>
 </body>
 </html>
