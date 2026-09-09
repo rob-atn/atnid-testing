@@ -13,22 +13,91 @@ Static test pages served by GitHub Pages from the `main` branch root.
 
 ## Custom Floodlight variables
 
-Each fire carries two u-vars so hits are distinguishable in reporting:
+Each fire carries u-vars so hits are distinguishable in reporting:
 
 | u-var | Value | Purpose |
 | --- | --- | --- |
 | `u1` | `call` or `website` | which link was clicked |
 | `u2` | `test-<epoch-ms>-<seq>` | unique per click, to find one specific test hit |
+| `u3` | the ATNID (a UUID) | ad-click identifier, forwarded to media-px |
 
-**Both u-vars must be declared in the CM360 Floodlight configuration**
-(Advertiser → Floodlight → Custom Floodlight Variables) before they collect
+**Every u-var must be declared in the CM360 Floodlight configuration**
+(Advertiser → Floodlight → Custom Floodlight Variables) before it collects
 anything. Undeclared, the values still ride along in the request but are
 discarded server-side — reporting shows nothing and no error surfaces
-anywhere.
+anywhere. `u3` is the newest, so check it is declared alongside `u1` and `u2`.
 
 Only documented gtag keys reach Floodlight (u-vars, `ord`, `qty`,
 `revenue`/`cost`, consent fields, and a short list of others). Arbitrary
 params such as `event_category` are dropped.
+
+## The ATNID
+
+The ATNID is a UUID minted when a user clicks an ad, handed to the landing
+page on the `atnid` query string param:
+
+```
+https://rob-atn.github.io/atnid-testing/?atnid=3f2a9c14-7b8e-4d51-9a6f-0c2e5d8b1a37
+```
+
+The page reads it, sends it to CM360 as `u3`, and CM360 forwards it to the
+media-px tracker. The panel shows which ATNID is in play for the current
+visit, or says so plainly when there is none.
+
+**It is validated strictly as a UUID, and refused otherwise.** That check is
+not cosmetic. The query string is attacker-supplied, the Floodlight request is
+semicolon-delimited, and the `%p` macro that forwards the value captures up to
+the next `;` — so a crafted param containing `;` or `?` could inject extra
+key-values into the hit or truncate the capture. Anything that is not exactly
+a UUID is dropped rather than forwarded, and the panel says it was refused.
+
+When no ATNID is present, `u3` is **omitted** rather than sent empty, so an
+unattributed visit stays distinguishable from a blank value in reporting.
+
+The value is kept in `sessionStorage`, not a cookie or `localStorage`, because
+a conversion can happen a page or two after the landing page but an ATNID
+surviving into a *later* visit would attribute that visit to an ad click it had
+nothing to do with. If real attribution needs to outlive the session, that
+becomes a cookie with a deliberate TTL — a measurement decision, not a
+technical one.
+
+## Forwarding to media-px (CM360 dynamic tag)
+
+The dynamic tag on the activity uses the `%p` pattern-matching macro to lift
+values out of the Floodlight request:
+
+```html
+<img src="https://media-px.com/action/3?oid=fltest&atnid=%pu3=!;&ca=%pu1=!;&cb=%pu2=!;&cc=%pord=!;&n=%n" width="1" height="1" alt=""/>
+```
+
+Macro syntax is `%p<key>=!<end-character>`:
+
+- The `=` is **literal** — URL-encoding it as `%3D` breaks the token.
+- The end character says where the value stops *in the Floodlight request*.
+  Everything above uses `;`, because in the actual request `u1`, `u2`, `u3` and
+  `ord` are all followed by `;`. Only the final key-value (`~oref`) terminates
+  with `?`.
+- Only keys that exist in the request can be captured. There is no `atnid=`
+  key in a Floodlight hit — the ATNID travels as `u3`, so `%pu3=!;` is what
+  forwards it. (`atnid0` appears in the request only as the value of `cat`, the
+  activity tag string, which is a fixed label rather than an ID.)
+- `%n` is the documented cachebuster, worth having on an `<img>` pixel.
+
+`cc` carries `ord` deliberately: it lets the tracker collapse duplicate
+transports of one conversion into a single event. See the note on retries
+below.
+
+## Retries and duplicate requests
+
+A single click can put the same request on the wire several times — observed
+in Chrome when the `tel:` handler dialog interrupted the page. The retries are
+byte-identical, `ord` included, so they are one conversion rather than several:
+
+- **`ord` is the conversion identity.** CM360 mints a fresh random `ord` per
+  fire under `+standard` counting and deduplicates on it, so *distinct `ord`
+  values* are what get counted — not request count.
+- When reconciling a test against reporting, count distinct `ord` values.
+- Nothing is lost to this, so it needs no fix on the page side.
 
 ## Verifying a fire
 

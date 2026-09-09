@@ -24,13 +24,17 @@ var flSeq = 0;
 function fireFloodlight(action) {
   // Sequence suffix keeps the nonce unique if two clicks land in the same ms.
   var entry = logFire(action, 'test-' + Date.now() + '-' + (++flSeq));
-  gtag('event', 'conversion', {
+  var params = {
     'allow_custom_scripts': true,
     'u1': action,
     'u2': entry.nonce,
     'send_to': FL_SEND_TO,
     'event_callback': function () { markConfirmed(entry.id); }
-  });
+  };
+  // Omitted entirely when there is no ATNID, rather than sent empty, so an
+  // unattributed visit stays distinguishable from a blank value in reporting.
+  if (entry.atnid) params.u3 = entry.atnid;
+  gtag('event', 'conversion', params);
 }
 </script>
 <!-- End of global snippet: Please do not remove -->
@@ -64,6 +68,47 @@ function expectedParams(sendTo) {
 }
 var FL_EXPECT = expectedParams(FL_SEND_TO);
 
+// ---- ATNID capture ---------------------------------------------------
+// The ATNID is a UUID minted when the user clicks an ad and handed to the
+// landing page on the query string. It rides to CM360 as u3.
+//
+// The format check is not cosmetic: the Floodlight request is semicolon-
+// delimited and the %p macro that forwards this to media-px captures up to
+// the next ';', so a query param containing ';' or '?' could corrupt the
+// hit or truncate the capture. The query string is attacker-supplied, so
+// anything that is not exactly a UUID is refused rather than forwarded.
+var ATNID_KEY = 'atnid';
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readQueryParam(name) {
+  var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(location.search);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1].replace(/\+/g, ' ')); }
+  catch (e) { return m[1]; }
+}
+
+// Kept for the session, not longer: the ATNID identifies one ad click, and a
+// value surviving into a later visit would attribute that visit to an ad
+// click it had nothing to do with.
+function captureAtnid() {
+  var fromUrl = readQueryParam(ATNID_KEY);
+  if (fromUrl && UUID_RE.test(fromUrl)) {
+    var v = fromUrl.toLowerCase();
+    try { sessionStorage.setItem(ATNID_KEY, v); } catch (e) {}
+    return { value: v, source: 'query string' };
+  }
+  if (fromUrl) return { value: null, source: null, rejected: fromUrl };
+  // No param on this URL: a conversion can happen a page or two after the
+  // landing page, so fall back to what the landing page stored.
+  var stored = null;
+  try { stored = sessionStorage.getItem(ATNID_KEY); } catch (e) {}
+  if (stored && UUID_RE.test(stored)) {
+    return { value: stored, source: 'session (landing page)' };
+  }
+  return { value: null, source: null };
+}
+var ATNID = captureAtnid();
+
 // ---- storage ---------------------------------------------------------
 function readLog() {
   try { return JSON.parse(sessionStorage.getItem(LOG_KEY)) || []; }
@@ -80,6 +125,7 @@ function logFire(action, nonce) {
     nonce: nonce,
     action: action,
     time: new Date().toTimeString().slice(0, 8),
+    atnid: ATNID.value,     // null when the visit carried no ATNID
     confirmed: false,
     load: LOAD_ID,
     wire: null              // filled in by the Resource Timing observer
@@ -141,7 +187,10 @@ function compareHit(params, row) {
     u1: row.action,
     u2: row.nonce
   };
+  // u3 is only checked when this fire actually had an ATNID to send; when it
+  // did, its absence on the wire is a failure worth showing.
   var keys = ['src', 'type', 'cat', 'u1', 'u2'];
+  if (row.atnid) { want.u3 = row.atnid; keys.push('u3'); }
   var checks = [];
   for (var i = 0; i < keys.length; i++) {
     var k = keys[i];
@@ -250,6 +299,24 @@ function detailRow(r) {
          '</td></tr>';
 }
 
+function renderAtnid() {
+  var el = document.getElementById('atnid-line');
+  if (!el) return;
+  if (ATNID.value) {
+    el.innerHTML = 'ATNID <code>' + esc(ATNID.value) + '</code> ' +
+      '<span class="muted">from ' + esc(ATNID.source) +
+      ', sending as <code>u3</code></span>';
+  } else if (ATNID.rejected) {
+    el.innerHTML = '<span class="bad">ATNID refused</span> <span class="muted">&mdash; ' +
+      '<code>' + esc(ATNID.rejected) + '</code> is not a UUID, so <code>u3</code> ' +
+      'is omitted rather than forwarded</span>';
+  } else {
+    el.innerHTML = '<span class="pending">No ATNID on this visit</span> ' +
+      '<span class="muted">&mdash; append <code>?atnid=&lt;uuid&gt;</code> to the ' +
+      'URL to test the passthrough; <code>u3</code> is omitted</span>';
+  }
+}
+
 function render() {
   var body = document.getElementById('log-body');
   if (!body) return; // clicked before DOM ready; render() runs again on load
@@ -277,6 +344,7 @@ function render() {
 window.addEventListener('DOMContentLoaded', function () {
   document.getElementById('clear').addEventListener('click', clearLog);
   document.getElementById('send-to').textContent = FL_SEND_TO;
+  renderAtnid();
   document.getElementById('log-body').addEventListener('click', function (ev) {
     var id = ev.target.getAttribute && ev.target.getAttribute('data-toggle');
     if (!id) return;
@@ -304,7 +372,9 @@ window.addEventListener('DOMContentLoaded', function () {
            padding: 16px; background: #fafafb; }
   .panel-head { display: flex; align-items: baseline;
                 justify-content: space-between; gap: 12px; }
-  .sends-to { margin: 6px 0 14px; font-size: 12px; color: #6b6b70; }
+  .sends-to { margin: 6px 0 4px; font-size: 12px; color: #6b6b70; }
+  .atnid-line { margin: 0 0 14px; font-size: 12px; }
+  .muted { color: #8e8e93; }
   .wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th { text-align: left; font-weight: 600; color: #6b6b70; font-size: 11px;
@@ -349,6 +419,7 @@ window.addEventListener('DOMContentLoaded', function () {
       <button id="clear" type="button">Clear</button>
     </div>
     <p class="sends-to">Sending to <code id="send-to"></code></p>
+    <p class="atnid-line" id="atnid-line"></p>
     <div class="wrap">
       <table>
         <thead>
