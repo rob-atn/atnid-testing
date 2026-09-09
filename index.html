@@ -18,19 +18,155 @@ Place this snippet between the <head> and </head> tags on every page of your sit
 
   gtag('config', 'DC-17198395');
 
-function fireFloodlight() {
+var FL_SEND_TO = 'DC-17198395/a3iq30/atnid0+standard';
+var flSeq = 0;
+
+function fireFloodlight(action) {
+  // Sequence suffix keeps the nonce unique if two clicks land in the same ms.
+  var entry = logFire(action, 'test-' + Date.now() + '-' + (++flSeq));
   gtag('event', 'conversion', {
     'allow_custom_scripts': true,
-    'send_to': 'DC-17198395/a3iq30/atnid0+standard'
+    'u1': action,
+    'u2': entry.nonce,
+    'send_to': FL_SEND_TO,
+    'event_callback': function () { markConfirmed(entry.id); }
   });
 }
 </script>
 <!-- End of global snippet: Please do not remove -->
+
+<script>
+// ---- On-page fire log -------------------------------------------------
+// Persisted in sessionStorage so the log survives navigating out to the
+// dealer site and coming back.
+var LOG_KEY = 'atnid-fire-log';
+
+function readLog() {
+  try { return JSON.parse(sessionStorage.getItem(LOG_KEY)) || []; }
+  catch (e) { return []; }
+}
+
+function writeLog(rows) {
+  try { sessionStorage.setItem(LOG_KEY, JSON.stringify(rows)); } catch (e) {}
+}
+
+function logFire(action, nonce) {
+  var entry = {
+    id: nonce,
+    nonce: nonce,
+    action: action,
+    time: new Date().toTimeString().slice(0, 8),
+    confirmed: false
+  };
+  var rows = readLog();
+  rows.unshift(entry);
+  writeLog(rows);
+  render();
+  return entry;
+}
+
+function markConfirmed(id) {
+  var rows = readLog();
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].id === id) { rows[i].confirmed = true; break; }
+  }
+  writeLog(rows);
+  render();
+}
+
+function clearLog() {
+  writeLog([]);
+  render();
+}
+
+function render() {
+  var body = document.getElementById('log-body');
+  if (!body) return; // clicked before DOM ready; render() runs again on load
+  var rows = readLog();
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty">No conversions fired yet. ' +
+                     'Click a link above.</td></tr>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    html += '<tr>' +
+      '<td>' + r.time + '</td>' +
+      '<td><code>' + r.action + '</code></td>' +
+      '<td><code>' + r.nonce + '</code></td>' +
+      '<td>' + (r.confirmed
+        ? '<span class="ok">&#10003; confirmed</span>'
+        : '<span class="pending">sent&hellip;</span>') +
+      '</td></tr>';
+  }
+  body.innerHTML = html;
+}
+
+window.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('clear').addEventListener('click', clearLog);
+  document.getElementById('send-to').textContent = FL_SEND_TO;
+  render();
+});
+</script>
+
+<style>
+  body { font: 15px/1.5 -apple-system, Segoe UI, system-ui, sans-serif;
+         color: #1c1c1e; background: #fff; margin: 0; padding: 24px;
+         max-width: 760px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em;
+       color: #6b6b70; margin: 0; }
+  .links p { margin: 8px 0; }
+  .panel { margin-top: 28px; border: 1px solid #dcdce0; border-radius: 8px;
+           padding: 16px; background: #fafafb; }
+  .panel-head { display: flex; align-items: baseline;
+                justify-content: space-between; gap: 12px; }
+  .sends-to { margin: 6px 0 14px; font-size: 12px; color: #6b6b70; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: #6b6b70; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .04em;
+       border-bottom: 1px solid #dcdce0; padding: 0 8px 6px 0; }
+  td { padding: 7px 8px 7px 0; border-bottom: 1px solid #ececf0;
+       vertical-align: top; }
+  code { font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .ok { color: #1a7f45; font-weight: 600; }
+  .pending { color: #8a6d00; }
+  .empty { color: #8e8e93; padding: 14px 0; border-bottom: 0; }
+  button { font: inherit; font-size: 12px; padding: 4px 10px;
+           border: 1px solid #c8c8cd; border-radius: 5px; background: #fff;
+           color: #1c1c1e; cursor: pointer; }
+  button:hover { background: #f1f1f4; }
+  .note { margin-top: 14px; font-size: 12px; color: #8e8e93; }
+</style>
 </head>
 
 <body>
   <h1>East Test Honda — Dealer Specials (sandbox)</h1>
-  <p><a href="tel:+15555550100" onclick="fireFloodlight()">Call dealership</a></p>
-  <p><a href="https://www.honda.com/" onclick="fireFloodlight()">Visit dealer website</a></p>
+
+  <div class="links">
+    <p><a href="tel:+15555550100" onclick="fireFloodlight('call')">Call dealership</a></p>
+    <p><a href="https://www.honda.com/" onclick="fireFloodlight('website')">Visit dealer website</a></p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Floodlight fire log</h2>
+      <button id="clear" type="button">Clear</button>
+    </div>
+    <p class="sends-to">Sending to <code id="send-to"></code></p>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>u1 (action)</th><th>u2 (nonce)</th><th>Status</th></tr>
+      </thead>
+      <tbody id="log-body"></tbody>
+    </table>
+    <p class="note">
+      &ldquo;Confirmed&rdquo; means gtag ran its <code>event_callback</code>. A row stuck on
+      &ldquo;sent&hellip;&rdquo; is not proof of failure — navigating away can cut the callback
+      short. Verify in DevTools &rarr; Network against
+      <code>ad.doubleclick.net/ddm/activity/</code>.
+    </p>
+  </div>
 </body>
 </html>
