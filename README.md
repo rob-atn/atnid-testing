@@ -61,6 +61,13 @@ nothing to do with. If real attribution needs to outlive the session, that
 becomes a cookie with a deliberate TTL — a measurement decision, not a
 technical one.
 
+The off-landing-page path was confirmed end to end on 2026-09-10: a reload with
+no `atnid` param still sent `u3` from session storage, and it reached media-px.
+Note when testing this that `sessionStorage` is **per tab** — the no-param load
+must be a reload or navigation in the same tab. A new tab or incognito window
+starts empty and will correctly report no ATNID, which looks like a failure and
+is not one.
+
 ## Forwarding to media-px (CM360 dynamic tag)
 
 The dynamic tag on the activity uses the `%p` pattern-matching macro to lift
@@ -68,6 +75,13 @@ values out of the Floodlight request:
 
 ```html
 <img src="https://media-px.com/action/3?oid=fltest&atnid=%pu3=!;&ca=%pu1=!;&cb=%pu2=!;&cc=%pord=!;&n=%n" width="1" height="1" alt=""/>
+```
+
+Confirmed working 2026-09-10 — a real outbound call, every macro resolved:
+
+```
+https://media-px.com/action/3?oid=fltest&atnid=3c56a1b9-6d11-4a89-beba-f7bcd40e22ba
+  &ca=call&cb=test-1789059907540-2&cc=4536605750079&n=356543251
 ```
 
 Macro syntax is `%p<key>=!<end-character>`:
@@ -81,11 +95,34 @@ Macro syntax is `%p<key>=!<end-character>`:
   key in a Floodlight hit — the ATNID travels as `u3`, so `%pu3=!;` is what
   forwards it. (`atnid0` appears in the request only as the value of `cat`, the
   activity tag string, which is a fixed label rather than an ID.)
-- `%n` is the documented cachebuster, worth having on an `<img>` pixel.
+- **Do not match on `atnid%3D`.** An earlier version of this tag used
+  `%patnid%3D!?` and appeared to work: the encoded landing URL inside `~oref`
+  contains `atnid%3D<uuid>`, so the macro was scraping the ATNID out of the
+  referrer rather than reading `u3`. It breaks whenever the conversion happens
+  off the landing page (no `atnid` in `~oref`) or when another param follows
+  the ATNID in the landing URL (`?atnid=X&utm_source=Y` encodes to
+  `atnid%3DX%26utm_source%3DY`, and the capture returns the lot). Match the
+  u-var, not the referrer.
+- The end character is **consumed, not emitted** — confirmed 2026-09-10 from
+  real outbound calls, where the ATNID arrived as a bare UUID with no trailing
+  `;`. No server-side stripping is needed.
+- `%n` is the documented cachebuster, and on this tag it is **required**, not
+  optional. See below.
+- Use `https://`. An `http://` pixel is mixed content on this HTTPS page;
+  browsers auto-upgrade or block it, and it would put the ATNID on the wire in
+  plaintext.
 
 `cc` carries `ord` deliberately: it lets the tracker collapse duplicate
 transports of one conversion into a single event. See the note on retries
 below.
+
+**Every fire must produce a distinct URL.** `<img>` requests are cacheable, so
+if the outbound URL is byte-identical between two conversions the browser can
+serve the second from cache and the server never sees it. The ATNID is constant
+for the whole ad click, so a tag carrying *only* the ATNID has this bug: two
+conversions in one session are indistinguishable and the second can vanish.
+`cb=%pu2=!;` (the per-click nonce) and `n=%n` are what keep each URL unique —
+do not drop both.
 
 ## Retries and duplicate requests
 
