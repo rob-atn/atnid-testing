@@ -41,27 +41,44 @@ build did not error rather than reading silence as success.
 
 ## Testing
 
-There is no test runner. The page is tested by extracting its inline scripts
-and running them under Node against stubs for `sessionStorage`, `document`,
-`location`, `performance` and `PerformanceObserver`:
-
 ```sh
-python -c "
-import re,io
-h=io.open('index.html',encoding='utf-8').read()
-s=re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>',h,re.S)
-io.open('scripts.js','w',encoding='utf-8').write('\n'.join(s))
-"
-node --check scripts.js
+node test/run.js            # every suite
+node test/run.js atnid      # suites matching a name
 ```
 
-Stub `globalThis.window = globalThis` — in a browser they are the same object,
-and the global site tag's `window.dataLayer = …` depends on it.
+No dependencies, no install. `test/run.js` extracts the page's inline
+`<script>` blocks, runs them in a VM context against stubs for
+`sessionStorage`, `document`, `location`, `performance` and
+`PerformanceObserver`, then asserts against the page's own globals. **The tests
+exercise the shipped code verbatim** — nothing is reimplemented in the suites,
+so they cannot drift from `index.html`.
 
-Feed synthetic Floodlight URLs through `considerEntry()` to exercise the wire
-check. Cover both endpoint shapes and, importantly, the **failure** paths:
-a stripped u-var, a hit with no `u2`, a stale row from a previous page load,
-and hostile query strings.
+Suites are `test/suite-*.js`, picked up automatically:
+
+| Suite | Covers |
+| --- | --- |
+| `suite-fire-log.js` | pairing hits to clicks, all three endpoint shapes, noise rejection, out-of-order arrival, nonce collisions, stale rows, rendering and escaping |
+| `suite-atnid.js` | ATNID capture and its sources, hostile query strings, `u3` in the wire check |
+| `suite-real-hits.js` | requests captured verbatim from Chrome, kept as regression fixtures |
+
+Helpers available inside a suite: `land(search, session)` simulates a page
+load, `seeResource(url)` feeds the observer, `freezeClock(ms)` pins
+`Date.now`, and `newestRow()` / `mismatches(row)` / `checkedKeys(row)` /
+`painted()` / `lastGtagParams()` read the results. Assert with
+`t.check(name, got, want)` or `t.ok(name, cond)`; `t.section(name)` groups
+output.
+
+Weight the **failure** paths — a stripped u-var, a hit with no `u2`, a stale
+row from a previous load, hostile query strings. The happy path is the easy
+half and the least likely to break silently.
+
+Note the coverage is layered rather than end-to-end: `lastGtagParams()`
+assertions prove what the page *sent*, while the wire suites feed hand-written
+URLs to prove the comparison logic. Neither alone catches everything, so when
+adding behaviour, add to both.
+
+Sanity-check the harness itself occasionally by mutating `index.html` and
+confirming a suite goes red. A suite that cannot fail is worthless.
 
 ## Constraints that are easy to break
 
