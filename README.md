@@ -176,6 +176,37 @@ intended.
 Once the wire column reads verified, the page side is correct and anything
 missing downstream is CM360-side — the u-var declaration or the report type.
 
+## Verifying in CM360 reporting
+
+Reporting → Instant Reporting → new Floodlight report. Confirmed working
+2026-09-10: `Link Action`, `Test Nonce` and `Atnid` all populated.
+
+Four things that are easy to get wrong, in the order they bite:
+
+- **Filter on Floodlight configuration ID `17198395` first.** Custom variables
+  do not appear in the dimension list at all until a configuration ID is
+  selected — look for them before that and you will conclude they were never
+  declared.
+- **Add them as dimensions, not metrics.** As metrics they are summed as
+  numeric values, so string values like `call` and a UUID both report as `0`.
+- **They appear under their friendly names** (`Link Action`, `Test Nonce`,
+  `Atnid`), not as `u1`/`u2`/`u3`.
+- **Metric: `Total Conversions`.** `Floodlight Impressions` is *incompatible*
+  with custom variables and with `Conversion Referrer` — it is an
+  activity-level aggregate carrying no per-conversion attributes, so it cannot
+  be broken out by anything that exists per conversion.
+
+**Enable the unattributed settings in the report properties, or every
+hand-made test reads zero.** Conversion metrics require prior ad exposure, and
+a test fired by pasting `?atnid=…` into the address bar has none. The relevant
+toggle is *unattributed cookie conversions* — the request carries `auiddc=`, so
+a DoubleClick cookie exists but no exposure does. Enabling unattributed IP
+conversions too is harmless and covers tests where the cookie did not stick.
+
+Once real ad clicks generate the ATNIDs, those conversions are attributed and
+the standard conversion metrics work normally. The unattributed-only situation
+is an artifact of hand-testing.
+
 ## Publishing a change
 
 Edits to `main` publish automatically; the Pages build usually takes about a
